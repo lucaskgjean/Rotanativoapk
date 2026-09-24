@@ -54,20 +54,30 @@ No Android nativo, os usuários navegam frequentemente pelo botão físico/virtu
 
 ---
 
+### ⚠️ ATENÇÃO SE VOCÊ CLONOU DIRETO DO GITHUB
+
+Se você clonou o repositório diretamente pelo GitHub / Android Studio e a opção de gerar APK **não aparece**, é por 2 motivos normais:
+1. **Pasta Aberta Incorreta**: O Android Studio abriu a pasta raiz do repositório em vez da subpasta `/android`. O Android Studio só reconhece o projeto como app Android quando você abre a pasta `android`.
+2. **Dependências Ausentes**: O GitHub não salva pastas como `node_modules` nem arquivos compilados da web (`dist`). É necessário rodar o comando de sincronização antes.
+
+---
+
 ## 🛠️ Como Abrir e Compilar no Android Studio
 
 ### Passo 1: Instalar Dependências e Gerar o Build Web
-No terminal do projeto, execute:
+No terminal do seu computador (no VS Code ou terminal comum, dentro da pasta do projeto):
 ```bash
+npm install
 npm run build:android
 ```
-Isso compila a aplicação com o Vite e copia os arquivos compilados para o diretório nativo `android/app/src/main/assets/public`.
+> Esse comando instala o Capacitor e compila todo o código React/TypeScript, gerando a pasta `android/app/src/main/assets/public`.
 
-### Passo 2: Abrir no Android Studio
-1. Abra o **Android Studio**.
-2. Clique em **File > Open** (ou **Open Project**).
-3. Selecione a pasta `android` deste projeto (`/android`).
-4. Aguarde o Android Studio realizar a sincronização do Gradle (**Gradle Sync**).
+### Passo 2: Abrir a pasta CORRETA no Android Studio
+1. No Android Studio, vá em **File > Close Project** (se já estiver aberto).
+2. Na tela inicial (ou em **File > Open...**):
+3. Navegue até a pasta do projeto e selecione **ESPECIFICAMENTE a pasta `android`** (você verá o ícone do robozinho verde do Android ao lado dela).
+4. Clique em **OK / Open**.
+5. Aguarde o Android Studio realizar a sincronização inicial do Gradle (**Gradle Sync** na barra inferior).
 
 ### Passo 3: Executar em um Emulador ou Celular Físico
 - Conecte seu celular Android via cabo USB (com a *Depuração USB* ativada) ou selecione um Emulador (Virtual Device).
