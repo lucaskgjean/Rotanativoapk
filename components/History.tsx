@@ -51,6 +51,8 @@ import {
 } from 'lucide-react';
 import QuickLaunch from './QuickLaunch';
 import PerformanceCalendar from './PerformanceCalendar';
+import { Capacitor } from '@capacitor/core';
+import { nativeStorageService } from '../services/nativeStorageService';
 
 // Algoritmo CRC-16 CCITT (0x1021) usado pelo Banco Central para Pix
 function crc16(data: string): string {
@@ -195,7 +197,44 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
       console.warn("Clipboard access error", e);
     }
 
-    const shareCaption = "Chave Pix cópia e cola abaixo ⤵️";
+    const shareCaption = `*COBRANÇA DE ENTREGAS - ${billingStore?.name?.toUpperCase() || 'ESTABELECIMENTO'}*\n\n` +
+      `📦 *Entregas:* ${billingStore?.totalEntries || 1}\n` +
+      `💰 *Total Pendente:* ${formatCurrency(billingStore?.totalDue || 0)}\n\n` +
+      (config.pixKey ? `🔑 *Chave Pix:* ${config.pixKey}${config.pixName ? ` (${config.pixName})` : ''}\n\n` : '') +
+      (pixCode ? `📋 *Pix Copia e Cola:*\n${pixCode}\n\n` : '') +
+      `_Gerado pelo aplicativo Rota Financeira_`;
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = reader.result as string;
+            resolve(res.includes(',') ? res.split(',')[1] : res);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(cachedShareFile);
+        });
+
+        const safeStoreName = (billingStore?.name || 'loja').toLowerCase().replace(/[^a-z0-9]/gi, '_');
+        const filename = `cobranca_${safeStoreName}.png`;
+
+        await nativeStorageService.shareBinaryFile(
+          filename,
+          base64Data,
+          'image/png',
+          `Cobrança - ${billingStore?.name || 'Loja'}`,
+          shareCaption
+        );
+      } catch (nativeErr: any) {
+        if (nativeErr?.name !== 'AbortError') {
+          console.error("Erro no compartilhamento nativo de imagem:", nativeErr);
+        }
+      }
+      setIsCopyingImage(false);
+      return;
+    }
+
     let sharedSuccessfully = false;
 
     // Compartilhamento nativo do celular (compartilha a imagem do cupom/QR Code com a legenda solicitada)
@@ -265,7 +304,7 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  const exportStoreReportPDF = () => {
+  const exportStoreReportPDF = async () => {
     if (!billingStore) return;
     setIsGeneratingPdf(true);
     try {
@@ -459,7 +498,28 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
 
       const safeStoreName = billingStore.name.toLowerCase().replace(/[^a-z0-9]/gi, '_');
       const safeDate = new Date().toISOString().split('T')[0];
-      doc.save(`relatorio_${safeStoreName}_${safeDate}.pdf`);
+      const filename = `relatorio_${safeStoreName}_${safeDate}.pdf`;
+
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const pdfDataUri = doc.output('datauristring');
+          const pdfBase64 = pdfDataUri.split(',')[1];
+          await nativeStorageService.shareBinaryFile(
+            filename,
+            pdfBase64,
+            'application/pdf',
+            `Relatório - ${billingStore.name}`,
+            `Relatório de entregas e cobrança: ${billingStore.name}`
+          );
+        } catch (nativeErr: any) {
+          if (nativeErr?.name !== 'AbortError') {
+            console.error('Erro ao compartilhar PDF nativo:', nativeErr);
+            doc.save(filename);
+          }
+        }
+      } else {
+        doc.save(filename);
+      }
     } catch (error) {
       console.error('Erro ao gerar relatório PDF:', error);
       alert('Não foi possível gerar o relatório PDF. Tente novamente.');

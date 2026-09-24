@@ -326,6 +326,7 @@ const App: React.FC = () => {
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#020617');
         localStorage.setItem('theme_hint', 'dark');
         if (Capacitor.isNativePlatform()) {
+          StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
           StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
           StatusBar.setBackgroundColor({ color: '#020617' }).catch(() => {});
         }
@@ -334,6 +335,7 @@ const App: React.FC = () => {
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f8fafc');
         localStorage.setItem('theme_hint', 'light');
         if (Capacitor.isNativePlatform()) {
+          StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
           StatusBar.setStyle({ style: Style.Light }).catch(() => {});
           StatusBar.setBackgroundColor({ color: '#f8fafc' }).catch(() => {});
         }
@@ -722,11 +724,12 @@ const App: React.FC = () => {
     setIsRefreshing(true); // Reutiliza o estado de loading para feedback visual
     try {
       await storageService.exportBackup(user.uid);
-      showToast("Backup gerado com sucesso!", "success");
+      showToast("Backup gerado! Cópia arquivada e menu de envio aberto.", "success");
       setShowBackupReminder(false);
       setLastBackupTime(new Date().toISOString());
-    } catch (e) {
-      showToast("Erro ao gerar backup.", "error");
+    } catch (e: any) {
+      console.error("Erro ao gerar backup:", e);
+      showToast(e?.message || "Erro ao gerar backup.", "error");
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
@@ -1202,7 +1205,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <header id="app-top" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 sticky top-0 z-40 shadow-sm">
+      <header id="app-top" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 sticky top-0 z-40 shadow-sm pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">

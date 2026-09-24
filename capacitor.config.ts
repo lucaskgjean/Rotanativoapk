@@ -9,6 +9,9 @@ const config: CapacitorConfig = {
     cleartext: true
   },
   plugins: {
+    StatusBar: {
+      overlaysWebView: false
+    },
     LocalNotifications: {
       smallIcon: 'ic_stat_icon',
       iconColor: '#4f46e5'

@@ -211,9 +211,13 @@ const Settings: React.FC<SettingsProps> = ({
     const today = new Date().toISOString().split('T')[0];
     const csvContent = entriesToCSV(entries);
     const filename = `ROTA_PLANILHA_${today}.csv`;
-    const res = await nativeStorageService.exportFile(filename, csvContent, 'text/csv;charset=utf-8;');
+    const res = await nativeStorageService.exportFile(filename, csvContent, 'text/csv;charset=utf-8;', {
+      share: true,
+      title: 'Planilha CSV - Rota Financeira',
+      text: `Planilha de lançamentos do Rota Financeira (${filename})`
+    });
     if (res.success) {
-      showToast(res.uri ? "Arquivo salvo na pasta Documentos do Android!" : "Planilha exportada com sucesso!", "success");
+      showToast("Planilha gerada com sucesso! Menu de compartilhamento aberto.", "success");
     } else {
       showToast(res.error || "Erro ao salvar arquivo.", "error");
     }
@@ -229,10 +233,19 @@ const Settings: React.FC<SettingsProps> = ({
       exportDate: new Date().toISOString()
     };
     
-    const filename = `ROTA_BACKUP_COMPLETO.json`;
-    const res = await nativeStorageService.exportFile(filename, JSON.stringify(snapshot, null, 2), 'application/json');
+    const filename = `ROTA_BACKUP_COMPLETO_${new Date().toISOString().split('T')[0]}.json`;
+    const res = await nativeStorageService.exportFile(
+      filename, 
+      JSON.stringify(snapshot, null, 2), 
+      'application/json',
+      {
+        share: true,
+        title: 'Backup Rota Financeira',
+        text: `Arquivo de backup completo do Rota Financeira (${filename})`
+      }
+    );
     if (res.success) {
-      showToast(res.uri ? "Backup salvo na pasta Documentos do Android!" : "Backup exportado com sucesso!", "success");
+      showToast("Backup criado com sucesso! Cópia arquivada e menu aberto.", "success");
     } else {
       showToast(res.error || "Erro ao salvar backup.", "error");
     }

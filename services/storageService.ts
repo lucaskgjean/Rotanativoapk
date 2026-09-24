@@ -4,6 +4,7 @@ import CryptoJS from 'crypto-js';
 import { DailyEntry, TimeEntry, AppConfig } from '../types';
 import { db, auth } from './firebase';
 import { doc, setDoc, getDoc, collection, writeBatch, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { nativeStorageService } from './nativeStorageService';
 
 enum OperationType {
   CREATE = 'create',
@@ -346,7 +347,7 @@ export const storageService = {
       ]);
 
       const backupData = {
-        version: '1.0',
+        version: '3.0',
         exportDate: new Date().toISOString(),
         userId,
         data: {
@@ -356,18 +357,27 @@ export const storageService = {
         }
       };
 
-      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `backup_rota_financeira_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const filename = `backup_rota_financeira_${new Date().toISOString().split('T')[0]}.json`;
+      const jsonContent = JSON.stringify(backupData, null, 2);
+
+      const res = await nativeStorageService.exportFile(
+        filename,
+        jsonContent,
+        'application/json',
+        {
+          share: true,
+          title: 'Backup Rota Financeira',
+          text: `Backup dos dados do aplicativo Rota Financeira (${filename})`
+        }
+      );
+
+      if (!res.success) {
+        throw new Error(res.error || 'Falha ao salvar backup');
+      }
       
       await localforage.setItem(`${KEYS.LAST_BACKUP}_${userId}`, new Date().toISOString());
       console.log(`[storageService] Backup exportado com sucesso para ${userId}`);
+      return res;
     } catch (e) {
       console.error("[storageService] Erro ao exportar backup:", e);
       throw e;
