@@ -35,7 +35,7 @@ interface SummaryHistoryProps {
   onUpdate: (entry: DailyEntry) => void;
   onEdit: (entry: DailyEntry) => void;
   onDelete: (id: string) => void;
-  handleBillStore: (store: { name: string; totalDue: number; entryIds?: string[] }) => void;
+  handleBillStore: (store: { name: string; totalDue: number; totalEntries?: number; entryIds?: string[] }) => void;
   formatCurrency: (val: number) => string;
   itemVariants?: Variants;
 }
@@ -69,6 +69,17 @@ export const SummaryHistory: React.FC<SummaryHistoryProps> = ({
       default: return pm.toUpperCase();
     }
   };
+
+  const displayedStores = React.useMemo(() => {
+    if (isAllStoresExpanded) return summaryStores;
+    const top5 = summaryStores.slice(0, 5);
+    // Se a loja expandida estiver além do top 5, inclui ela para nunca sumir da visão
+    const expandedStore = summaryStores.find(s => expandedStores[s.name]);
+    if (expandedStore && !top5.some(s => s.name === expandedStore.name)) {
+      return [...top5, expandedStore];
+    }
+    return top5;
+  }, [isAllStoresExpanded, summaryStores, expandedStores]);
 
   return (
     <motion.div 
@@ -148,7 +159,7 @@ export const SummaryHistory: React.FC<SummaryHistoryProps> = ({
       ) : (
         <div className="space-y-4">
           <div id="summary-history-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(isAllStoresExpanded ? summaryStores : summaryStores.slice(0, 5)).map((store, idx) => {
+            {displayedStores.map((store, idx) => {
               // Determine styles based on rank (1st: Gold/Yellow, 2nd: Silver/Gray, 3rd: Bronze/Brown, others: Indigo)
               // Following the calendar pattern: clear/soft background, strong border, and matching text color
               let rankStyle = "bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 dark:border-indigo-500/40";
@@ -170,10 +181,12 @@ export const SummaryHistory: React.FC<SummaryHistoryProps> = ({
                   variants={itemVariants}
                   whileHover={{ y: -2, transition: { duration: 0.2 } }}
                   onClick={() => {
-                    setExpandedStores(prev => ({
-                      ...prev,
-                      [store.name]: !prev[store.name]
-                    }));
+                    setExpandedStores(prev => {
+                      if (prev[store.name]) {
+                        return {};
+                      }
+                      return { [store.name]: true };
+                    });
                   }}
                   className="bg-white dark:bg-slate-900 rounded-[2rem] p-5 border border-slate-100 dark:border-slate-800 transition-all flex flex-col gap-3 cursor-pointer select-none shadow-sm hover:shadow-md"
                 >
@@ -408,54 +421,49 @@ export const SummaryHistory: React.FC<SummaryHistoryProps> = ({
                                           </div>
                                         )}
 
-                                        {/* Barra de Opções e Ações */}
-                                        <div className="flex items-center justify-between gap-2 pt-1">
-                                          {/* Botão de Alternar Status (Pago / Pendente) */}
-                                          <button
+                                        {/* Barra de Ações: Excluir, Editar, Pago/Pendente (Design idêntico ao Histórico Completo) */}
+                                        <div className="flex gap-2 pt-2 border-t border-slate-100/80 dark:border-slate-800/80">
+                                          <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDelete(entry.id);
+                                            }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all active:scale-95 group/btn cursor-pointer"
+                                          >
+                                            <Trash2 size={15} className="text-rose-500" />
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Excluir</span>
+                                          </button>
+                                          <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onEdit(entry);
+                                            }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all active:scale-95 group/btn cursor-pointer"
+                                          >
+                                            <Edit3 size={15} className="text-indigo-500" />
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Editar</span>
+                                          </button>
+                                          <button 
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onUpdate({ ...entry, isPaid: !entry.isPaid });
                                             }}
-                                            className={`px-2.5 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
+                                            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 rounded-2xl transition-all active:scale-95 group/btn border cursor-pointer ${
                                               entry.isPaid
-                                                ? 'bg-white hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                                : 'bg-rose-500 hover:bg-rose-600 text-white border-rose-500 shadow-rose-200/50 dark:shadow-none'
+                                                ? 'bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border-emerald-200 dark:border-emerald-800/50 text-emerald-600 dark:text-emerald-400'
+                                                : 'bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 border-rose-200 dark:border-rose-800/50 text-rose-600 dark:text-rose-400'
                                             }`}
                                           >
-                                            {entry.isPaid ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
-                                            <span>{entry.isPaid ? 'Marcar Pendente' : 'Marcar Pago'}</span>
+                                            <div className={entry.isPaid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                                              {entry.isPaid ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+                                            </div>
+                                            <span className="text-[10px] font-black uppercase tracking-widest">
+                                              {entry.isPaid ? 'Pago' : 'Pendente'}
+                                            </span>
                                           </button>
-
-                                          {/* Botões de Ação: Editar e Excluir */}
-                                          <div className="flex items-center gap-1.5">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit(entry);
-                                              }}
-                                              className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-400 text-[9px] font-bold transition-all cursor-pointer flex items-center gap-1 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs"
-                                              title="Editar Corrida"
-                                            >
-                                              <Edit3 size={11} />
-                                              <span>Editar</span>
-                                            </button>
-
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (confirm('Tem certeza que deseja excluir esta corrida?')) {
-                                                  onDelete(entry.id);
-                                                }
-                                              }}
-                                              className="p-1.5 rounded-xl bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer border border-slate-200/60 dark:border-slate-700/60 shadow-2xs"
-                                              title="Excluir Corrida"
-                                            >
-                                              <Trash2 size={11} />
-                                            </button>
-                                          </div>
                                         </div>
                                       </motion.div>
                                     )}
@@ -504,10 +512,15 @@ export const SummaryHistory: React.FC<SummaryHistoryProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              const pendingEntries = store.entries ? store.entries.filter(e => !e.isPaid && e.grossAmount > 0) : [];
+                              const pendingDeliveriesCount = pendingEntries.reduce((acc, curr) => acc + (curr.deliveryCount && curr.deliveryCount > 0 ? curr.deliveryCount : 1), 0);
+                              const pendingEntryIds = pendingEntries.map(e => e.id).filter(Boolean);
+
                               handleBillStore({
                                 name: store.name,
                                 totalDue: store.pending,
-                                entryIds: store.entryIds
+                                totalEntries: pendingDeliveriesCount || 1,
+                                entryIds: pendingEntryIds.length > 0 ? pendingEntryIds : store.entryIds
                               });
                             }}
                             disabled={store.pending <= 0}

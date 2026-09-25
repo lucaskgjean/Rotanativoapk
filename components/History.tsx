@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { DailyEntry, AppConfig, TimeEntry } from '../types';
@@ -141,6 +141,51 @@ export function generatePixPayload(key: string, name: string, city: string, amou
   return payload + crc;
 }
 
+function getStorePendingPeriod(store: { name: string; entryIds?: string[] } | null, allEntries: DailyEntry[]): string {
+  if (!store) return '';
+  let storeItems: DailyEntry[] = [];
+  if (store.entryIds && store.entryIds.length > 0) {
+    const idSet = new Set(store.entryIds);
+    storeItems = allEntries.filter(e => idSet.has(e.id) && !e.isPaid && e.grossAmount > 0);
+  } else {
+    storeItems = allEntries.filter(e => 
+      e.storeName?.toLowerCase().trim() === store.name?.toLowerCase().trim() && 
+      !e.isPaid && 
+      e.grossAmount > 0
+    );
+  }
+
+  const pendingDates = Array.from(new Set(storeItems.map(e => e.date).filter(Boolean))).sort();
+
+  const formatDateBR = (iso: string) => {
+    if (!iso) return '';
+    const parts = iso.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return iso;
+  };
+
+  if (pendingDates.length === 0) {
+    const storeDates = Array.from(new Set(allEntries.filter(e => e.storeName?.toLowerCase().trim() === store.name?.toLowerCase().trim()).map(e => e.date).filter(Boolean))).sort();
+    if (storeDates.length > 0) {
+      const first = storeDates[0];
+      const last = storeDates[storeDates.length - 1];
+      return first === last ? formatDateBR(first) : `${formatDateBR(first)} a ${formatDateBR(last)}`;
+    }
+    return new Date().toLocaleDateString('pt-BR');
+  }
+
+  const firstDate = pendingDates[0];
+  const lastDate = pendingDates[pendingDates.length - 1];
+
+  if (firstDate === lastDate) {
+    return formatDateBR(firstDate);
+  }
+
+  return `${formatDateBR(firstDate)} a ${formatDateBR(lastDate)}`;
+}
+
 interface BillingModalPortalProps {
   billingStore: { name: string; totalDue: number; totalEntries?: number; entryIds?: string[] } | null;
   config: AppConfig;
@@ -168,6 +213,10 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
 }) => {
   const [printMode, setPrintMode] = useState(false);
   const [isCopyingImage, setIsCopyingImage] = useState(false);
+
+  const pendingPeriod = useMemo(() => {
+    return getStorePendingPeriod(billingStore, entries);
+  }, [billingStore, entries]);
 
   const hasPixConfig = billingStore ? !!(config.pixKey && config.pixKey.trim().length > 0) : false;
   const pixCode = (billingStore && hasPixConfig)
@@ -198,10 +247,10 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
     }
 
     const shareCaption = `*COBRANÇA DE ENTREGAS - ${billingStore?.name?.toUpperCase() || 'ESTABELECIMENTO'}*\n\n` +
-      `📦 *Entregas:* ${billingStore?.totalEntries || 1}\n` +
+      `📅 *Período:* ${pendingPeriod}\n` +
+      `📦 *Entregas:* ${billingStore?.totalEntries || 1} ${Number(billingStore?.totalEntries || 1) === 1 ? 'corrida' : 'corridas'}\n` +
       `💰 *Total Pendente:* ${formatCurrency(billingStore?.totalDue || 0)}\n\n` +
-      (config.pixKey ? `🔑 *Chave Pix:* ${config.pixKey}${config.pixName ? ` (${config.pixName})` : ''}\n\n` : '') +
-      (pixCode ? `📋 *Pix Copia e Cola:*\n${pixCode}\n\n` : '') +
+      `💬 *A chave Pix para pagamento será enviada abaixo de forma separada.*\n\n` +
       `_Gerado pelo aplicativo Rota Financeira_`;
 
     if (Capacitor.isNativePlatform()) {
@@ -273,7 +322,7 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
           try {
             await navigator.share({
               title: `Cobrança - ${billingStore?.name || 'Loja'}`,
-              text: `${shareCaption}\n\n${pixCode}`
+              text: shareCaption
             });
             sharedSuccessfully = true;
           } catch (err: any) {
@@ -292,7 +341,7 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
           
-          alert("✨ Chave Pix copiada para a área de transferência!\n\nA imagem do cupom foi baixada para você enviar ao estabelecimento.");
+          alert("✨ Chave Pix copiada para a área de transferência!\n\nA imagem da cobrança foi baixada. A chave Pix pode ser colada separadamente logo abaixo.");
         }
       } catch (err) {
         console.error(err);
@@ -318,7 +367,7 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
       let storeItems: DailyEntry[] = [];
       if (billingStore.entryIds && billingStore.entryIds.length > 0) {
         const idSet = new Set(billingStore.entryIds);
-        storeItems = entries.filter(e => idSet.has(e.id));
+        storeItems = entries.filter(e => idSet.has(e.id) && !e.isPaid && e.grossAmount > 0);
       } else {
         storeItems = entries.filter(e => 
           e.storeName?.toLowerCase().trim() === billingStore.name?.toLowerCase().trim() && 
@@ -553,7 +602,10 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
           
           <div className="space-y-3">
             <div>
-              <span className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Estabelecimento</span>
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="block text-[8px] font-black text-slate-500 uppercase tracking-widest">Estabelecimento</span>
+                <span className="text-[8px] font-bold text-indigo-400 uppercase tracking-wider">📅 {pendingPeriod}</span>
+              </div>
               <span className="block text-base font-black text-white leading-tight">{billingStore.name}</span>
             </div>
 
@@ -695,7 +747,12 @@ const BillingModalPortal: React.FC<BillingModalPortalProps> = ({
 
             <div className="space-y-2 mb-4">
               <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800/50">
-                <span className="block text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">Estabelecimento</span>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="block text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Estabelecimento</span>
+                  <span className="inline-flex items-center gap-1 text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-md">
+                    📅 {pendingPeriod}
+                  </span>
+                </div>
                 <span className="block text-sm font-black text-slate-800 dark:text-white">{billingStore.name}</span>
               </div>
 
@@ -932,7 +989,14 @@ const History: React.FC<HistoryProps> = ({
         console.warn("Clipboard access denied", e);
       }
 
-      const shareText = `Chave Pix cópia e cola abaixo ⤵️\n\n${pixCode}`;
+      const pendingPeriod = getStorePendingPeriod(billingStore, entries);
+
+      const shareText = `*COBRANÇA DE ENTREGAS - ${storeName.toUpperCase()}*\n\n` +
+        `📅 *Período:* ${pendingPeriod}\n` +
+        `📦 *Entregas:* ${billingStore?.totalEntries || 1} ${Number(billingStore?.totalEntries || 1) === 1 ? 'corrida' : 'corridas'}\n` +
+        `💰 *Total Pendente:* ${formatCurrency(amount)}\n\n` +
+        `💬 *A chave Pix para pagamento será enviada abaixo de forma separada.*\n\n` +
+        `_Gerado pelo aplicativo Rota Financeira_`;
 
       // If we have a cached file and navigator.share with files is supported
       if (cachedShareFile && navigator.share && navigator.canShare && navigator.canShare({ files: [cachedShareFile] })) {
@@ -959,7 +1023,7 @@ const History: React.FC<HistoryProps> = ({
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         }
-        alert(`Código Pix Copia e Cola copiado para a área de transferência!\n\nAlém disso, a imagem com o QR Code foi baixada para você enviar ao estabelecimento.`);
+        alert(`✨ Chave Pix copiada para a área de transferência!\n\nA imagem da cobrança foi baixada. A chave Pix pode ser colada separadamente logo abaixo.`);
       }
     } catch (err) {
       console.error(err);
@@ -996,6 +1060,7 @@ const History: React.FC<HistoryProps> = ({
 
     const generate = async () => {
       try {
+        const pendingPeriod = getStorePendingPeriod(billingStore, entries);
         const canvas = document.createElement('canvas');
         // Ultra-HD 3x scale (1800 x 2520 px) for razor-sharp clarity on retina displays and WhatsApp
         const scale = 3;
@@ -1078,35 +1143,45 @@ const History: React.FC<HistoryProps> = ({
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(30, 41, 59, 0.7)';
         ctx.beginPath();
-        drawRoundedRect(36, 122, 528, 185, 20);
+        drawRoundedRect(36, 118, 528, 206, 20);
         ctx.fill();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Estabelecimento (Store Name highlighted in large bold white text)
+        // Estabelecimento
         ctx.fillStyle = '#94a3b8';
-        ctx.font = `bold 11px ${fontSans}`;
-        ctx.fillText('ESTABELECIMENTO', 56, 150);
+        ctx.font = `bold 10px ${fontSans}`;
+        ctx.fillText('ESTABELECIMENTO', 56, 142);
 
+        // Store Name
         ctx.fillStyle = '#ffffff';
-        ctx.font = `900 22px ${fontSans}`;
+        ctx.font = `900 21px ${fontSans}`;
         const storeNameRaw = billingStore.name;
-        const storeNameDisplay = storeNameRaw.length > 30 ? storeNameRaw.slice(0, 30) + '...' : storeNameRaw;
-        ctx.fillText(storeNameDisplay, 56, 178);
+        const storeNameDisplay = storeNameRaw.length > 32 ? storeNameRaw.slice(0, 32) + '...' : storeNameRaw;
+        ctx.fillText(storeNameDisplay, 56, 166);
 
-        // Subtle divider inside card
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        // Badge de Período das Entregas Pendentes
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.14)';
         ctx.beginPath();
-        ctx.moveTo(56, 196);
-        ctx.lineTo(544, 196);
+        drawRoundedRect(56, 178, 488, 28, 8);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.28)';
+        ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Two sub-cards: Left = Quantidade de Entregas, Right = Valor a Pagar (highlighted)
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#c7d2fe';
+        ctx.font = `bold 11px ${fontSans}`;
+        ctx.fillText(`📅 PERÍODO: ${pendingPeriod.toUpperCase()}`, 300, 196);
+
+        // Two sub-cards: Left = Quantidade de Entregas, Right = Valor a Pagar
+        ctx.textAlign = 'left';
+
         // Entregas sub-card
         ctx.fillStyle = 'rgba(99, 102, 241, 0.1)';
         ctx.beginPath();
-        drawRoundedRect(56, 208, 230, 80, 14);
+        drawRoundedRect(56, 218, 230, 88, 14);
         ctx.fill();
         ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
         ctx.lineWidth = 1;
@@ -1114,20 +1189,20 @@ const History: React.FC<HistoryProps> = ({
 
         ctx.fillStyle = '#a5b4fc';
         ctx.font = `bold 10px ${fontSans}`;
-        ctx.fillText('QUANTIDADE DE ENTREGAS', 72, 230);
+        ctx.fillText('QUANTIDADE DE ENTREGAS', 72, 242);
 
         ctx.fillStyle = '#ffffff';
         ctx.font = `900 24px ${fontMono}`;
         const deliveryCountText = `${billingStore.totalEntries || 1} ${Number(billingStore.totalEntries || 1) === 1 ? 'corrida' : 'corridas'}`;
-        ctx.fillText(deliveryCountText, 72, 264);
+        ctx.fillText(deliveryCountText, 72, 276);
 
         // Valor a Pagar (Total Due highlighted with rose gradient background)
-        const valGrad = ctx.createLinearGradient(302, 208, 544, 288);
+        const valGrad = ctx.createLinearGradient(302, 218, 544, 306);
         valGrad.addColorStop(0, 'rgba(244, 63, 94, 0.16)');
         valGrad.addColorStop(1, 'rgba(225, 29, 72, 0.08)');
         ctx.fillStyle = valGrad;
         ctx.beginPath();
-        drawRoundedRect(302, 208, 242, 80, 14);
+        drawRoundedRect(302, 218, 242, 88, 14);
         ctx.fill();
         ctx.strokeStyle = 'rgba(244, 63, 94, 0.35)';
         ctx.lineWidth = 1.5;
@@ -1135,14 +1210,14 @@ const History: React.FC<HistoryProps> = ({
 
         ctx.fillStyle = '#fda4af';
         ctx.font = `bold 10px ${fontSans}`;
-        ctx.fillText('TOTAL PENDENTE', 318, 230);
+        ctx.fillText('TOTAL PENDENTE', 318, 242);
 
         ctx.fillStyle = '#f43f5e';
         ctx.font = `900 26px ${fontMono}`;
-        ctx.fillText(formatCurrency(billingStore.totalDue), 318, 265);
+        ctx.fillText(formatCurrency(billingStore.totalDue), 318, 278);
 
         // 3. QR Code Card Container
-        const qrBoxY = 325;
+        const qrBoxY = 338;
         const qrBoxHeight = 405;
         ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
         ctx.beginPath();
@@ -1209,7 +1284,7 @@ const History: React.FC<HistoryProps> = ({
         // Bottom Footer
         ctx.fillStyle = '#475569';
         ctx.font = `bold 10px ${fontSans}`;
-        ctx.fillText('Rota Financeira • Gestão para Entregadores', 300, 815);
+        ctx.fillText('Rota Financeira • Gestão para Entregadores', 300, 818);
 
         canvas.toBlob((blob) => {
           if (blob) {
@@ -1226,7 +1301,7 @@ const History: React.FC<HistoryProps> = ({
     };
 
     generate();
-  }, [billingStore, config.pixKey, config.pixName, config.pixCity]);
+  }, [billingStore, config.pixKey, config.pixName, config.pixCity, entries]);
 
   const uniqueStores = useMemo(() => {
     return Array.from(new Set(entries.filter(e => e.grossAmount > 0).map(e => e.storeName))).sort();
@@ -1257,6 +1332,40 @@ const History: React.FC<HistoryProps> = ({
       .map(item => item.entry);
   }, [entries, filterStartDate, filterEndDate, filterPayment, filterStatus, filterStore]);
 
+  const expandedStoreName = useMemo(() => {
+    return Object.keys(expandedStores).find(k => expandedStores[k]) || null;
+  }, [expandedStores]);
+
+  const frozenOrderRef = useRef<{ expandedStore: string | null; sortMode: string; order: string[] }>({
+    expandedStore: null,
+    sortMode: summarySortMode,
+    order: []
+  });
+
+  const summaryEntries = useMemo(() => {
+    return entries.filter(entry => {
+      if (entry.grossAmount === 0 || entry.storeName === 'Fechamento de KM') return false;
+
+      const matchRange = (filterStartDate || filterEndDate) ? (
+        (!filterStartDate || entry.date >= filterStartDate) &&
+        (!filterEndDate || entry.date <= filterEndDate)
+      ) : true;
+      
+      const matchPayment = filterPayment ? entry.paymentMethod === filterPayment : true;
+      
+      // Enquanto a loja estiver expandida, mantém os registros dela no resumo mesmo se alterado para pago
+      const isExpandedStore = expandedStoreName && entry.storeName === expandedStoreName;
+
+      const matchStatus = (filterStatus && !isExpandedStore) ? (
+        filterStatus === 'paid' ? entry.isPaid === true : entry.isPaid === false
+      ) : true;
+
+      const matchStore = filterStore ? entry.storeName.toLowerCase().includes(filterStore.toLowerCase()) : true;
+      
+      return matchRange && matchPayment && matchStatus && matchStore;
+    });
+  }, [entries, filterStartDate, filterEndDate, filterPayment, filterStatus, filterStore, expandedStoreName]);
+
   const stats = useMemo(() => getWeeklySummary(filteredEntries), [filteredEntries]);
   const dailyBreakdown = useMemo(() => getDailyStats(entries, timeEntries, config), [entries, timeEntries, config]);
 
@@ -1273,7 +1382,7 @@ const History: React.FC<HistoryProps> = ({
       latestDateTime: string;
     }> = {};
     
-    filteredEntries.forEach(e => {
+    summaryEntries.forEach(e => {
       const store = e.storeName || 'Geral';
       if (!map[store]) {
         map[store] = {
@@ -1318,28 +1427,65 @@ const History: React.FC<HistoryProps> = ({
       });
     });
 
-    return Object.values(map).sort((a, b) => {
-      if (summarySortMode === 'lancamento') {
-        if (b.latestDateTime !== a.latestDateTime) {
-          return b.latestDateTime.localeCompare(a.latestDateTime);
-        }
-        return b.gross - a.gross;
-      }
+    const storeList = Object.values(map);
 
-      if (summarySortMode === 'pendente') {
-        if (b.pending !== a.pending) {
-          return b.pending - a.pending;
+    const naturalSort = (list: typeof storeList) => {
+      return [...list].sort((a, b) => {
+        if (summarySortMode === 'lancamento') {
+          if (b.latestDateTime !== a.latestDateTime) {
+            return b.latestDateTime.localeCompare(a.latestDateTime);
+          }
+          return b.gross - a.gross;
         }
-        return b.gross - a.gross;
-      }
 
-      // 'faturamento': lojas que mais fizeram dinheiro no topo em diante
-      if (b.gross !== a.gross) {
-        return b.gross - a.gross;
+        if (summarySortMode === 'pendente') {
+          if (b.pending !== a.pending) {
+            return b.pending - a.pending;
+          }
+          return b.gross - a.gross;
+        }
+
+        // 'faturamento': lojas que mais fizeram dinheiro no topo em diante
+        if (b.gross !== a.gross) {
+          return b.gross - a.gross;
+        }
+        return b.latestDateTime.localeCompare(a.latestDateTime);
+      });
+    };
+
+    // 1. Se nenhuma loja estiver expandida ou o modo de ordenação foi alterado pelo usuário:
+    if (!expandedStoreName || frozenOrderRef.current.sortMode !== summarySortMode) {
+      const sorted = naturalSort(storeList);
+      frozenOrderRef.current = {
+        expandedStore: expandedStoreName,
+        sortMode: summarySortMode,
+        order: sorted.map(s => s.name)
+      };
+      return sorted;
+    }
+
+    // 2. Se mudou de loja expandida (o usuário abriu outra loja):
+    if (frozenOrderRef.current.expandedStore !== expandedStoreName) {
+      const sorted = naturalSort(storeList);
+      frozenOrderRef.current = {
+        expandedStore: expandedStoreName,
+        sortMode: summarySortMode,
+        order: sorted.map(s => s.name)
+      };
+      return sorted;
+    }
+
+    // 3. Enquanto a mesma loja estiver expandida, mantém ela e as demais exatamente no mesmo lugar
+    const orderMap = new Map(frozenOrderRef.current.order.map((name, i) => [name, i]));
+    return storeList.sort((a, b) => {
+      const indexA = orderMap.has(a.name) ? orderMap.get(a.name)! : 99999;
+      const indexB = orderMap.has(b.name) ? orderMap.get(b.name)! : 99999;
+      if (indexA !== indexB) {
+        return indexA - indexB;
       }
-      return b.latestDateTime.localeCompare(a.latestDateTime);
+      return a.name.localeCompare(b.name);
     });
-  }, [filteredEntries, summarySortMode]);
+  }, [summaryEntries, summarySortMode, expandedStoreName]);
 
   const getPaymentIcon = (method?: string) => {
     switch (method) {
